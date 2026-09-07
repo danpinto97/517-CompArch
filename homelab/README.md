@@ -7,103 +7,103 @@ Server: Unraid (Docker via Compose Manager Plus)
 
 - [x] Unraid Docker enabled (`appdata` + `system` on cache)
 - [x] Immich installed and running (LAN access + mobile app)
-- [ ] Expose Immich at a public URL on `pintoserve.com` (Cloudflare Tunnel)
+- [ ] Expose Immich at `https://photos.pintoserve.com` (Cloudflare Tunnel + Immich login only)
 - [ ] PhotoPrism stack (read-only browse/search over Immich library)
 - [ ] Ofelia scheduler (nightly PhotoPrism index + convert/backup jobs)
 - [ ] Backups for Immich library + databases
-- [ ] (Optional) Cloudflare Access lock in front of Immich
+- [ ] Immich app: local + external URL switching
+- [ ] (Optional later) Cloudflare Access + service-token headers for mobile
 
 ---
 
-## Immich public URL on pintoserve.com
+## Immich public URL (chosen setup)
 
-**Recommended path:** Cloudflare Tunnel (no router port forwards).
+Same model as a typical shared app on a friend’s server:
 
-Suggested hostname: `photos.pintoserve.com` → Immich on Unraid (`http://UNRAID-LAN-IP:2283`)
+```text
+Internet → HTTPS → Cloudflare Tunnel → Immich username/password
+```
 
-### Why this path
-- No open ports on your home router
-- Keeps your home IP off public DNS
-- HTTPS handled by Cloudflare
-- Easy to add PhotoPrism later (`prism.pintoserve.com`, etc.)
+- **No router port forwards**
+- **No Cloudflare Access email gate** (Access breaks the Immich app unless you add service-token headers)
+- **Immich accounts** control who can log in (create users in Immich admin to share with friends)
+
+Suggested hostname: `photos.pintoserve.com` → `http://UNRAID-LAN-IP:2283`
 
 ### Steps
 
-#### 1. Put the domain on Cloudflare DNS
-1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com)
-2. **Add site** → enter `pintoserve.com`
-3. Choose the **Free** plan
-4. Cloudflare shows two nameservers (e.g. `ada.ns.cloudflare.com`)
-5. At your domain registrar, replace the domain’s nameservers with Cloudflare’s
-6. Wait until Cloudflare shows the zone as **Active** (can take from minutes to a few hours)
+#### 1. Domain on Cloudflare
+Already done (`pintoserve.com` via Cloudflare Registrar).
 
-#### 2. Create a Tunnel
-1. Cloudflare dashboard → **Zero Trust** (free team is fine)
-2. **Networks → Tunnels → Create a tunnel**
-3. Pick **Cloudflared**
-4. Name it something like `unraid-pintoserve`
-5. Copy the **tunnel token** (long string) — keep it private
+#### 2. Tunnel + cloudflared on Unraid
+1. Zero Trust → **Networks → Tunnels → Create a tunnel** → Cloudflared
+2. Name it (e.g. `unraid-pintoserve`) and copy the **token**
+3. Run cloudflared on Unraid (Compose Manager Plus recommended):
 
-#### 3. Run `cloudflared` on Unraid
-**Apps** → search **Cloudflared** / **Cloudflare Tunnel** → install.
+```yaml
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=paste-your-token-here
+```
 
-Set the token from step 2 in the container template (often `TOKEN` or in the command).
+4. Confirm tunnel status is **Healthy** in Cloudflare
 
-Start the container and confirm it shows **Healthy / Connected** in the Cloudflare Tunnels UI.
-
-#### 4. Route the hostname to Immich
-In the tunnel’s **Public Hostname** tab:
+#### 3. Public hostname → Immich
+In the tunnel → **Public Hostname**:
 
 | Field | Value |
 |--------|--------|
 | Subdomain | `photos` |
 | Domain | `pintoserve.com` |
-| Path | (leave empty) |
-| Service type | `HTTP` |
+| Path | (empty) |
+| Type | HTTP |
 | URL | `http://UNRAID-LAN-IP:2283` |
 
-Use your Unraid server’s LAN IP (the same one that works from your phone), **not** `localhost` from Cloudflare’s perspective unless cloudflared is using host networking and Immich is on that host.
+#### 4. Remove Access from this hostname
+If you created an Access application for `photos.pintoserve.com`, **delete or disable it**.
 
-Save. Cloudflare will create the DNS CNAME for `photos.pintoserve.com` automatically.
+You do **not** need the email policy for this setup. Leave Access unused for Immich.
 
-#### 5. Point Immich at the public URL
-In Immich (web) → **Administration → Settings → Server Settings** (wording may vary by version):
+Browser and Immich app should both hit Immich’s own login page (JSON API), not a Cloudflare `<!DOCTYPE html>` interstitial.
 
-- Set the public / external domain to: `https://photos.pintoserve.com`
+#### 5. Immich server URL settings
+In Immich web → **Administration → Settings**:
 
-Also update phone app server URL to:
+- External / public URL: `https://photos.pintoserve.com`
+
+#### 6. Phone app
+Server URL:
 
 ```text
 https://photos.pintoserve.com
 ```
 
-(Use `https`, no port.)
+Log in with your Immich username/password (the account you created in Immich — not Cloudflare).
 
-#### 6. Lock it down (strongly recommended)
-Immich has its own login, but scanners will still find the hostname.
+Optional but recommended: enable **local network switching**
 
-In Cloudflare Zero Trust → **Access → Applications**:
+- External: `https://photos.pintoserve.com`
+- Local: `http://UNRAID-LAN-IP:2283`
 
-1. Add an application for `photos.pintoserve.com`
-2. Policy: allow your email (One-time PIN / Google / GitHub)
-3. Optionally exclude Immich API paths later if the mobile app has trouble with Access — many people start with Access on, and if the app breaks, either:
-   - use a bypass policy for the mobile app’s needs, or
-   - rely on Immich auth only and keep the Tunnel (still no open ports)
+Large video backups work better on LAN (Cloudflare Free has upload size limits).
 
-Test in a browser first, then the Immich app.
-
-#### 7. Upload / performance note
-Large phone backups are often faster on home Wi‑Fi using the LAN URL (`http://UNRAID-IP:2283`). Public URL is best for remote browsing/sharing; LAN for bulk backup at home.
+#### 7. Sharing with someone else
+1. Immich admin → create a user for them  
+2. Send: `https://photos.pintoserve.com` + their Immich username/password  
+3. No Cloudflare invites or email OTP required  
 
 ---
 
 ## Next: PhotoPrism + Ofelia
 
-After Immich is reachable via the domain:
-
-1. Find Immich library UUID under `/mnt/user/photos/immich/library/`
-2. Deploy PhotoPrism with that path mounted **read-only** under `/photoprism/originals/Immich`
-3. Add Ofelia with `jobs.ini` to run `photoprism index --cleanup` on a schedule
+1. Find Immich library under `/mnt/user/photos/immich/library/`
+2. Deploy PhotoPrism with that path mounted **read-only**
+3. Add Ofelia to run `photoprism index --cleanup` on a schedule
 4. Keep Immich as the upload/source-of-truth app
 
 ---
@@ -120,6 +120,7 @@ After Immich is reachable via the domain:
 
 ## Security reminders
 - Do **not** port-forward Immich or the Unraid UI
-- Do **not** expose Unraid’s management ports on the tunnel
-- Treat `pintoserve.com` hostnames as public once DNS is live
+- Do **not** put the Unraid management UI on the tunnel
+- Use strong Immich passwords; create separate users for friends
 - Keep Immich, cloudflared, and Unraid updated
+- Optional later: Cloudflare Access + Immich custom proxy headers (service token) if you want an extra browser gate
