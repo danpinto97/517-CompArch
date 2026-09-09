@@ -1,0 +1,4 @@
+{
+  "name": "517-CompArch MIPS Simulator",
+  "install": "make"
+}
